@@ -800,8 +800,11 @@ class Database:
         
         # Outcome side-effects per PRD Section 11.5
         if outcome == "APPROVED_AFTER_REVIEW":
-            # Record approval
-            self.record_approval(invoice_id, investigation_id, "APPROVED", actor_label, "BLOCK/ESCALATE", "APPROVED", rationale, is_override=True)
+            app_id = str(uuid4())
+            cursor.execute("""
+                INSERT INTO approvals (id, invoice_id, investigation_id, status, approver_role_label, previous_decision, new_decision, reason, is_override, created_at)
+                VALUES (?, ?, ?, 'APPROVED', ?, 'BLOCK/ESCALATE', 'APPROVED', ?, 1, ?)
+            """, (app_id, invoice_id, investigation_id, actor_label, rationale, now_str))
             cursor.execute("UPDATE invoices SET status = 'APPROVED', updated_at = ? WHERE id = ?", (now_str, invoice_id))
         elif outcome == "BLOCKED":
             cursor.execute("UPDATE invoices SET status = 'BLOCKED', updated_at = ? WHERE id = ?", (now_str, invoice_id))
