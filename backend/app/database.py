@@ -7,7 +7,9 @@ from typing import Dict, Any, List, Optional
 from uuid import uuid4
 from backend.app.config import settings
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "godspeed.db")
+DB_FILE = os.environ.get("SQLITE_DB_PATH") or (
+    "/tmp/godspeed.db" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(__file__), "..", "..", "godspeed.db")
+)
 
 class Database:
     """
@@ -31,7 +33,8 @@ class Database:
         else:
             print("[Database] Active database mode: SQLITE (local embedded engine)")
             
-        self._init_sqlite()
+        if not self.supabase_client:
+            self._init_sqlite()
 
     @property
     def mode(self) -> str:
@@ -43,6 +46,8 @@ class Database:
         return conn
 
     def _init_sqlite(self):
+        if self.supabase_client:
+            return
         os.makedirs(os.path.dirname(os.path.abspath(DB_FILE)), exist_ok=True)
         conn = self._get_connection()
         cursor = conn.cursor()
