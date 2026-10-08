@@ -298,7 +298,7 @@ def verify_audit_chain():
 # --- Health check ---
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "app": "AuditTrail AP", "version": "1.0.0"}
+    return {"status": "ok", "app": "AuditTrail AP", "version": "1.0.0", "database_mode": db.mode}
 
 # Mount frontend if dist/static exists
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")

@@ -39,7 +39,7 @@ class InvoiceResponse(BaseModel):
     invoice_number: str
     vendor_id: Optional[str] = None
     vendor_name: Optional[str] = None
-    vendor_match_status: str
+    vendor_match_status: Optional[str] = "MATCHED"
     invoice_date: Optional[date] = None
     currency: str = "INR"
     amount: float

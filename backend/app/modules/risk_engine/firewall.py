@@ -38,10 +38,7 @@ def run_risk_firewall(invoice_id: str, actor_label: str = "SYSTEM") -> Dict[str,
             
         vendor_id = vendor["id"]
         # Update invoice with vendor
-        conn = db._get_connection()
-        conn.cursor().execute("UPDATE invoices SET vendor_id = ?, vendor_match_status = 'MATCHED' WHERE id = ?", (vendor_id, invoice_id))
-        conn.commit()
-        conn.close()
+        db.update_invoice(invoice_id, {"vendor_id": vendor_id, "vendor_match_status": "MATCHED"})
         invoice["vendor_id"] = vendor_id
     else:
         vendor = db.get_vendor(vendor_id)
@@ -49,13 +46,7 @@ def run_risk_firewall(invoice_id: str, actor_label: str = "SYSTEM") -> Dict[str,
     # 2. Historical context
     all_vendor_invoices = db.get_invoices_by_vendor(vendor_id)
     prior_invoices = [inv for inv in all_vendor_invoices if inv["id"] != invoice_id]
-    
-    bank_accounts = []
-    conn = db._get_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM vendor_bank_accounts WHERE vendor_id = ?", (vendor_id,))
-    bank_accounts = [dict(r) for r in c.fetchall()]
-    conn.close()
+    bank_accounts = db.get_vendor_bank_accounts(vendor_id)
 
     # 3. Dynamic vendor trust recalculation
     trust_score_data = calculate_vendor_trust(vendor, prior_invoices, bank_accounts)

@@ -18,14 +18,24 @@ class Database:
     """
     def __init__(self):
         self.supabase_client = None
-        if settings.supabase_url and settings.supabase_service_role_key:
+        force_sqlite = os.environ.get("FORCE_SQLITE", "").lower() in ("1", "true", "yes")
+        
+        if not force_sqlite and settings.supabase_url and settings.supabase_service_role_key:
             try:
                 from supabase import create_client
                 self.supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+                print(f"[Database] Active database mode: SUPABASE ({settings.supabase_url})")
             except Exception as e:
                 print(f"[Database] Could not initialize Supabase client: {e}. Falling back to SQLite.")
                 self.supabase_client = None
+        else:
+            print("[Database] Active database mode: SQLITE (local embedded engine)")
+            
         self._init_sqlite()
+
+    @property
+    def mode(self) -> str:
+        return "SUPABASE" if self.supabase_client is not None else "SQLITE"
 
     def _get_connection(self):
         conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -104,11 +114,22 @@ class Database:
             invoice_id TEXT NOT NULL,
             description TEXT NOT NULL,
             normalized_description TEXT,
-            quantity REAL,
+            quantity REAL DEFAULT 1.0,
             unit_price REAL,
             line_total REAL,
             hsn_sac_code TEXT,
             FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS risk_rules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            rule_type TEXT NOT NULL,
+            category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            config TEXT DEFAULT '{}',
+            enabled INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS ai_evaluations (
@@ -149,7 +170,8 @@ class Database:
             ai_evaluation_id TEXT,
             created_at TEXT NOT NULL,
             is_current INTEGER DEFAULT 1,
-            FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id),
+            FOREIGN KEY (ai_evaluation_id) REFERENCES ai_evaluations(id)
         );
 
         CREATE TABLE IF NOT EXISTS risk_signals (
@@ -187,7 +209,6 @@ class Database:
             window_hours INTEGER NOT NULL,
             severity TEXT NOT NULL,
             status TEXT DEFAULT 'OPEN',
-            suppression_reason TEXT,
             explanation TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (vendor_id) REFERENCES vendors(id)
@@ -314,6 +335,35 @@ class Database:
         vendor_id = data.get("id") or str(uuid4())
         created_at = data.get("created_at") or datetime.now(timezone.utc).isoformat()
         normalized_name = data["name"].strip().lower()
+
+        if self.supabase_client:
+            cat = data.get("vendor_category") or data.get("category") or "GOODS"
+            if cat not in ("GOODS", "OTHER", "LOGISTICS", "IT_SERVICES"):
+                cat = "GOODS"
+            row = {
+                "id": vendor_id,
+                "vendor_code": data.get("vendor_code") or f"V-{vendor_id[:8].upper()}",
+                "legal_name": data.get("legal_name") or data["name"],
+                "name": data["name"],
+                "normalized_name": normalized_name,
+                "category": cat,
+                "e_invoice_applicable": bool(data.get("e_invoice_applicable")),
+                "po_required": bool(data.get("po_required")),
+                "invoice_number_reuse_allowed": bool(data.get("invoice_number_reuse_allowed")),
+                "split_billing_allowed": bool(data.get("split_billing_allowed")),
+                "default_currency": data.get("currency") or "INR",
+                "status": data.get("status") or "ACTIVE",
+                "source": data.get("source") or "MANUAL",
+                "onboarded_at": created_at,
+                "version": 1,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "gstin": data.get("gstin"),
+                "pan": data.get("pan"),
+                "tds_category": data.get("tds_category", "NOT_APPLICABLE")
+            }
+            self.supabase_client.table("vendors").insert(row).execute()
+            return self.get_vendor(vendor_id)
         
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -330,6 +380,16 @@ class Database:
         return self.get_vendor(vendor_id)
 
     def get_vendor(self, vendor_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendors").select("*").eq("id", vendor_id).execute()
+            if not res.data:
+                return None
+            v = res.data[0]
+            if not v.get("name") and v.get("legal_name"):
+                v["name"] = v["legal_name"]
+            v["current_trust_score"] = self.get_current_trust_score(vendor_id)
+            return v
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendors WHERE id = ?", (vendor_id,))
@@ -344,9 +404,21 @@ class Database:
     def find_vendor_by_gstin(self, gstin: str) -> Optional[Dict[str, Any]]:
         if not gstin:
             return None
+        norm_gstin = gstin.strip().upper()
+
+        if self.supabase_client:
+            res = self.supabase_client.table("vendors").select("*").eq("gstin", norm_gstin).execute()
+            if res.data:
+                v = res.data[0]
+                if not v.get("name") and v.get("legal_name"):
+                    v["name"] = v["legal_name"]
+                v["current_trust_score"] = self.get_current_trust_score(v["id"])
+                return v
+            return None
+
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM vendors WHERE gstin = ?", (gstin.strip().upper(),))
+        cursor.execute("SELECT * FROM vendors WHERE gstin = ?", (norm_gstin,))
         row = cursor.fetchone()
         conn.close()
         if row:
@@ -357,6 +429,17 @@ class Database:
 
     def find_vendor_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         norm = name.strip().lower()
+
+        if self.supabase_client:
+            res = self.supabase_client.table("vendors").select("*").eq("normalized_name", norm).execute()
+            if res.data:
+                v = res.data[0]
+                if not v.get("name") and v.get("legal_name"):
+                    v["name"] = v["legal_name"]
+                v["current_trust_score"] = self.get_current_trust_score(v["id"])
+                return v
+            return None
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendors WHERE normalized_name = ?", (norm,))
@@ -369,6 +452,16 @@ class Database:
         return None
 
     def get_all_vendors(self) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendors").select("*").order("created_at", desc=True).execute()
+            out = []
+            for v in res.data:
+                if not v.get("name") and v.get("legal_name"):
+                    v["name"] = v["legal_name"]
+                v["current_trust_score"] = self.get_current_trust_score(v["id"])
+                out.append(v)
+            return out
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendors ORDER BY created_at DESC")
@@ -385,9 +478,34 @@ class Database:
     def create_vendor_bank_account(self, data: Dict[str, Any]) -> Dict[str, Any]:
         acct_id = data.get("id") or str(uuid4())
         acc_num = data.get("account_number", "")
-        masked = f"XXXXXXXX{acc_num[-4:]}" if len(acc_num) >= 4 else "XXXXXXXX"
-        acc_hash = hashlib.sha256(acc_num.encode()).hexdigest()
+        last4 = acc_num[-4:] if len(acc_num) >= 4 else "0000"
+        masked = f"XXXXXXXX{last4}"
+        acc_hash = hashlib.sha256(acc_num.encode()).hexdigest() if acc_num else ("0" * 64)
         now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            ifsc_val = data.get("ifsc", "HDFC0000001")
+            row = {
+                "id": acct_id,
+                "vendor_id": data["vendor_id"],
+                "account_number_enc": "\\x01020304",
+                "account_number_hash": acc_hash,
+                "account_number_last4": last4,
+                "account_number_masked": masked,
+                "ifsc": ifsc_val,
+                "status": "ACTIVE",
+                "activated_at": now_str,
+                "callback_verified": bool(data.get("verified", False)),
+                "requested_by_label": "AP_ANALYST",
+                "source": data.get("source", "MANUAL_ENTRY"),
+                "verified": bool(data.get("verified", False)),
+                "effective_from": now_str,
+                "created_at": now_str,
+                "updated_at": now_str
+            }
+            self.supabase_client.table("vendor_bank_accounts").insert(row).execute()
+            self.apply_bank_change_penalty(data["vendor_id"])
+            return self.get_vendor_bank_account(acct_id)
         
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -401,11 +519,14 @@ class Database:
         conn.commit()
         conn.close()
         
-        # Invalidate current trust score by applying temporary penalty of -20 per PRD
         self.apply_bank_change_penalty(data["vendor_id"])
         return self.get_vendor_bank_account(acct_id)
 
     def get_vendor_bank_account(self, acct_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendor_bank_accounts").select("*").eq("id", acct_id).execute()
+            return res.data[0] if res.data else None
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendor_bank_accounts WHERE id = ?", (acct_id,))
@@ -414,6 +535,10 @@ class Database:
         return dict(row) if row else None
 
     def get_latest_bank_account(self, vendor_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendor_bank_accounts").select("*").eq("vendor_id", vendor_id).order("created_at", desc=True).limit(1).execute()
+            return res.data[0] if res.data else None
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendor_bank_accounts WHERE vendor_id = ? ORDER BY effective_from DESC LIMIT 1", (vendor_id,))
@@ -421,13 +546,71 @@ class Database:
         conn.close()
         return dict(row) if row else None
 
+    def get_vendor_bank_accounts(self, vendor_id: str) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendor_bank_accounts").select("*").eq("vendor_id", vendor_id).execute()
+            return res.data or []
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM vendor_bank_accounts WHERE vendor_id = ?", (vendor_id,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+
     # --- Vendor Trust Score Methods ---
     def save_vendor_trust_score(self, vendor_id: str, score: float, band: str, evidence_level: str, temporary_penalty: bool, detail: Dict[str, Any]) -> Dict[str, Any]:
         score_id = str(uuid4())
         now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            # Map band to allowed enum: ('HIGH_TRUST', 'MODERATE', 'LOW_TRUST', 'UNRATED')
+            if band in ('HIGH_TRUST', 'MODERATE', 'LOW_TRUST', 'UNRATED'):
+                pg_band = band
+            elif score >= 75.0:
+                pg_band = 'HIGH_TRUST'
+            elif score < 45.0:
+                pg_band = 'LOW_TRUST'
+            else:
+                pg_band = 'MODERATE'
+
+            # Map evidence to allowed enum: ('NO_EVIDENCE', 'LIMITED', 'ESTABLISHED')
+            if evidence_level in ('NO_EVIDENCE', 'LIMITED', 'ESTABLISHED'):
+                pg_ev = evidence_level
+            elif evidence_level == 'SUFFICIENT':
+                pg_ev = 'ESTABLISHED'
+            else:
+                pg_ev = 'LIMITED'
+
+            # The vendor_trust_scores table is immutable with unique index on (vendor_id) WHERE is_current = true.
+            # If a current score exists, subsequent evaluations are appended with is_current = False.
+            existing_current = self.supabase_client.table("vendor_trust_scores").select("id").eq("vendor_id", vendor_id).eq("is_current", True).execute()
+            is_curr_val = False if existing_current.data else True
+
+            row = {
+                "id": score_id,
+                "vendor_id": vendor_id,
+                "score": float(score),
+                "evidence_state": pg_ev,
+                "confidence": 0.95,
+                "band": pg_band,
+                "components": detail if isinstance(detail, dict) else {},
+                "trigger_event": "INVOICE_EVALUATION",
+                "algorithm_version": "1.0",
+                "is_current": is_curr_val,
+                "computed_at": now_str,
+                "calculation_detail": detail if isinstance(detail, dict) else {},
+                "calculated_at": now_str
+            }
+            self.supabase_client.table("vendor_trust_scores").insert(row).execute()
+            return {
+                "id": score_id, "vendor_id": vendor_id, "score": score, "band": band,
+                "evidence_level": evidence_level, "temporary_penalty": temporary_penalty,
+                "calculation_detail": detail, "calculated_at": now_str, "is_current": True
+            }
+
         conn = self._get_connection()
         cursor = conn.cursor()
-        # Mark previous current as false
         cursor.execute("UPDATE vendor_trust_scores SET is_current = 0 WHERE vendor_id = ?", (vendor_id,))
         cursor.execute("""
             INSERT INTO vendor_trust_scores (id, vendor_id, score, band, evidence_level, temporary_penalty, calculation_detail, calculated_at, is_current)
@@ -445,6 +628,18 @@ class Database:
         }
 
     def get_current_trust_score(self, vendor_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("vendor_trust_scores").select("*").eq("vendor_id", vendor_id).order("computed_at", desc=True).limit(1).execute()
+            if not res.data:
+                return None
+            r = res.data[0]
+            if not r.get("calculation_detail"):
+                r["calculation_detail"] = r.get("components") or {}
+            r["temporary_penalty"] = False
+            r["is_current"] = True
+            r["evidence_level"] = r.get("evidence_state", "LIMITED")
+            return r
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM vendor_trust_scores WHERE vendor_id = ? AND is_current = 1 LIMIT 1", (vendor_id,))
@@ -465,15 +660,59 @@ class Database:
             band = "AT_RISK" if new_score < 20 else ("DEVELOPING" if new_score < 45 else ("NEW" if new_score < 70 else "ESTABLISHED"))
             detail = curr["calculation_detail"]
             detail["bank_change_penalty"] = -20.0
-            self.save_vendor_trust_score(vendor_id, new_score, band, curr["evidence_level"], True, detail)
+            self.save_vendor_trust_score(vendor_id, new_score, band, curr.get("evidence_level", "LIMITED"), True, detail)
 
     # --- Invoice Methods ---
     def create_invoice(self, data: Dict[str, Any], line_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         invoice_id = data.get("id") or str(uuid4())
         now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            st = data.get("status", "INGESTED")
+            if st == "APPROVE": st = "APPROVED"
+            elif st == "ESCALATE": st = "ESCALATED"
+            elif st == "BLOCK": st = "BLOCKED"
+
+            inv_row = {
+                "id": invoice_id,
+                "invoice_number": data["invoice_number"],
+                "vendor_id": data.get("vendor_id"),
+                "vendor_match_status": data.get("vendor_match_status", "MATCHED"),
+                "po_id": data.get("po_id"),
+                "invoice_date": data.get("invoice_date") or now_str[:10],
+                "currency": data.get("currency", "INR"),
+                "amount": float(data["amount"]),
+                "taxable_value": float(data.get("taxable_value") or 0.0),
+                "tax_amount": float(data.get("tax_amount") or 0.0),
+                "tds_amount": float(data.get("tds_amount") or 0.0),
+                "gstin_on_invoice": data.get("gstin_on_invoice"),
+                "irn": data.get("irn"),
+                "status": st,
+                "validation_errors": data.get("validation_errors", []),
+                "created_at": now_str,
+                "updated_at": now_str
+            }
+            self.supabase_client.table("invoices").insert(inv_row).execute()
+
+            if line_items:
+                li_rows = []
+                for item in line_items:
+                    li_id = item.get("id") or str(uuid4())
+                    li_rows.append({
+                        "id": li_id,
+                        "invoice_id": invoice_id,
+                        "description": item["description"],
+                        "normalized_description": item["description"].strip().lower(),
+                        "quantity": float(item.get("quantity", 1.0)),
+                        "unit_price": float(item.get("unit_price", 0.0)),
+                        "line_total": float(item.get("line_total", 0.0)),
+                        "hsn_sac_code": item.get("hsn_sac_code")
+                    })
+                self.supabase_client.table("invoice_line_items").insert(li_rows).execute()
+            return self.get_invoice(invoice_id)
+
         conn = self._get_connection()
         cursor = conn.cursor()
-        
         cursor.execute("""
             INSERT INTO invoices (id, invoice_number, vendor_id, vendor_match_status, po_id, invoice_date, currency, amount, taxable_value, tax_amount, tds_amount, gstin_on_invoice, irn, status, validation_errors, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -506,31 +745,56 @@ class Database:
         if new_status == "PAID":
             latest_assessment = self.get_latest_assessment(invoice_id)
             if latest_assessment and latest_assessment["decision"] == "BLOCK":
-                # Check for override approval
                 approvals = self.get_approvals_for_invoice(invoice_id)
-                override_approved = any(a["status"] == "APPROVED" and a["is_override"] for a in approvals)
+                override_approved = any(a.get("status") == "APPROVED" and a.get("is_override") for a in approvals)
                 if not override_approved:
                     raise ValueError(f"DATABASE SAFEGUARD VIOLATION: Invoice {invoice_id} is BLOCKED and cannot be marked PAID without an approved override.")
             elif latest_assessment and latest_assessment["decision"] == "ESCALATE":
                 approvals = self.get_approvals_for_invoice(invoice_id)
-                approved = any(a["status"] == "APPROVED" for a in approvals)
+                approved = any(a.get("status") == "APPROVED" for a in approvals)
                 if not approved:
                     raise ValueError(f"DATABASE SAFEGUARD VIOLATION: Invoice {invoice_id} is ESCALATED and requires approval before payment release.")
 
+        st = new_status
+        if st == "APPROVE": st = "APPROVED"
+        elif st == "ESCALATE": st = "ESCALATED"
+        elif st == "BLOCK": st = "BLOCKED"
+        now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            self.supabase_client.table("invoices").update({"status": st, "updated_at": now_str}).eq("id", invoice_id).execute()
+            return
+
         conn = self._get_connection()
         cursor = conn.cursor()
-        now_str = datetime.now(timezone.utc).isoformat()
         cursor.execute("UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_str, invoice_id))
         conn.commit()
         conn.close()
 
     def update_invoice(self, invoice_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        now_str = datetime.now(timezone.utc).isoformat()
         allowed_fields = [
             "amount", "invoice_number", "vendor_id", "currency", "taxable_value",
-            "tax_amount", "tds_amount", "gstin_on_invoice", "irn", "po_id", "status"
+            "tax_amount", "tds_amount", "gstin_on_invoice", "irn", "po_id", "status", "vendor_match_status"
         ]
+
+        if self.supabase_client:
+            up = {}
+            for f in allowed_fields:
+                if f in updates:
+                    val = updates[f]
+                    if f == "status":
+                        if val == "APPROVE": val = "APPROVED"
+                        elif val == "ESCALATE": val = "ESCALATED"
+                        elif val == "BLOCK": val = "BLOCKED"
+                    up[f] = val
+            if up:
+                up["updated_at"] = now_str
+                self.supabase_client.table("invoices").update(up).eq("id", invoice_id).execute()
+            return self.get_invoice(invoice_id)
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
         set_clauses = []
         params = []
         for f in allowed_fields:
@@ -542,7 +806,7 @@ class Database:
             return self.get_invoice(invoice_id)
         
         set_clauses.append("updated_at = ?")
-        params.append(datetime.now(timezone.utc).isoformat())
+        params.append(now_str)
         params.append(invoice_id)
         
         cursor.execute(f"UPDATE invoices SET {', '.join(set_clauses)} WHERE id = ?", params)
@@ -551,6 +815,20 @@ class Database:
         return self.get_invoice(invoice_id)
 
     def get_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("invoices").select("*").eq("id", invoice_id).execute()
+            if not res.data:
+                return None
+            inv = res.data[0]
+            inv["vendor_match_status"] = inv.get("vendor_match_status") or "MATCHED"
+            if inv.get("vendor_id"):
+                v_res = self.supabase_client.table("vendors").select("name, legal_name").eq("id", inv["vendor_id"]).execute()
+                if v_res.data:
+                    inv["vendor_name"] = v_res.data[0].get("name") or v_res.data[0].get("legal_name")
+            li_res = self.supabase_client.table("invoice_line_items").select("*").eq("invoice_id", invoice_id).execute()
+            inv["line_items"] = li_res.data or []
+            return inv
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -571,6 +849,14 @@ class Database:
         return inv
 
     def get_invoices_by_vendor(self, vendor_id: str) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("invoices").select("*").eq("vendor_id", vendor_id).order("created_at", desc=True).execute()
+            invoices = res.data or []
+            for inv in invoices:
+                li_res = self.supabase_client.table("invoice_line_items").select("*").eq("invoice_id", inv["id"]).execute()
+                inv["line_items"] = li_res.data or []
+            return invoices
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM invoices WHERE vendor_id = ? ORDER BY invoice_date DESC, created_at DESC", (vendor_id,))
@@ -585,6 +871,36 @@ class Database:
         return invoices
 
     def get_all_invoices(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            q = self.supabase_client.table("invoices").select("*")
+            if status:
+                st = status
+                if st == "APPROVE": st = "APPROVED"
+                elif st == "ESCALATE": st = "ESCALATED"
+                elif st == "BLOCK": st = "BLOCKED"
+                q = q.eq("status", st)
+            res = q.order("created_at", desc=True).execute()
+            invoices = res.data or []
+            
+            # Efficiently map vendor names
+            vendors_map = {}
+            try:
+                v_res = self.supabase_client.table("vendors").select("id, name, legal_name").execute()
+                for v in (v_res.data or []):
+                    vendors_map[v["id"]] = v.get("name") or v.get("legal_name")
+            except Exception:
+                pass
+
+            for inv in invoices:
+                inv["vendor_match_status"] = inv.get("vendor_match_status") or "MATCHED"
+                inv["vendor_name"] = vendors_map.get(inv.get("vendor_id"), "Vendor")
+                try:
+                    li_res = self.supabase_client.table("invoice_line_items").select("*").eq("invoice_id", inv["id"]).execute()
+                    inv["line_items"] = li_res.data or []
+                except Exception:
+                    inv["line_items"] = []
+            return invoices
+
         conn = self._get_connection()
         cursor = conn.cursor()
         query = """
@@ -612,21 +928,85 @@ class Database:
     def save_risk_assessment(self, assessment_data: Dict[str, Any], signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         assessment_id = assessment_data.get("id") or str(uuid4())
         now_str = datetime.now(timezone.utc).isoformat()
+        invoice_id = assessment_data["invoice_id"]
+
+        decision_val = assessment_data["decision"]
+        if decision_val == "APPROVED": decision_val = "APPROVE"
+        elif decision_val == "ESCALATED": decision_val = "ESCALATE"
+        elif decision_val == "BLOCKED": decision_val = "BLOCK"
+
+        if self.supabase_client:
+            # 1. Fetch prior current assessment
+            prior_res = self.supabase_client.table("risk_assessments").select("id").eq("invoice_id", invoice_id).eq("is_current", True).execute()
+            prev_id = assessment_data.get("previous_assessment_id") or (prior_res.data[0]["id"] if prior_res.data else None)
+
+            # 2. Mark previous current as false
+            try:
+                self.supabase_client.table("risk_assessments").update({"is_current": False}).eq("invoice_id", invoice_id).execute()
+            except Exception as e:
+                print(f"[Database] Notice updating prior assessments: {e}")
+
+            # 3. Insert new assessment
+            ass_row = {
+                "id": assessment_id,
+                "invoice_id": invoice_id,
+                "previous_assessment_id": prev_id,
+                "final_score": float(assessment_data["final_score"]),
+                "decision": decision_val,
+                "decision_reason": assessment_data["decision_reason"],
+                "forced_by_hard_rule": assessment_data.get("forced_by_hard_rule"),
+                "ai_evaluation_id": assessment_data.get("ai_evaluation_id"),
+                "created_at": now_str,
+                "is_current": True
+            }
+            self.supabase_client.table("risk_assessments").insert(ass_row).execute()
+
+            # 4. Insert risk signals
+            if signals:
+                sig_rows = []
+                for sig in signals:
+                    cat = sig.get("category", "VENDOR")
+                    if cat not in ('DUPLICATE', 'PRICING', 'VENDOR', 'COMPLIANCE', 'SPLIT_INVOICE', 'BANK_CHANGE', 'DATA_QUALITY', 'AI_SYNTHESIS'):
+                        cat = "VENDOR"
+                    sev = sig.get("severity", "LOW")
+                    if sev not in ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'):
+                        sev = "LOW"
+                    src = sig.get("source", "RULE_ENGINE")
+                    if src not in ('RULE_ENGINE', 'STATISTICAL', 'DUPLICATE_ENGINE', 'SPLIT_ENGINE', 'AI'):
+                        src = "RULE_ENGINE"
+                    sig_rows.append({
+                        "id": sig.get("id") or str(uuid4()),
+                        "risk_assessment_id": assessment_id,
+                        "category": cat,
+                        "severity": sev,
+                        "score_contribution": float(sig.get("score_contribution", 0.0)),
+                        "confidence": float(sig.get("confidence", 1.0)),
+                        "source": src,
+                        "evidence": sig.get("evidence", {}),
+                        "status": sig.get("status", "OPEN")
+                    })
+                self.supabase_client.table("risk_signals").insert(sig_rows).execute()
+
+            # 5. Update invoice status
+            inv_st = "APPROVED" if decision_val == "APPROVE" else ("ESCALATED" if decision_val == "ESCALATE" else "BLOCKED")
+            self.supabase_client.table("invoices").update({"status": inv_st, "updated_at": now_str}).eq("id", invoice_id).execute()
+
+            return self.get_risk_assessment(assessment_id)
+
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Capture prior current assessment before marking superseded
-        cursor.execute("SELECT id FROM risk_assessments WHERE invoice_id = ? AND is_current = 1 LIMIT 1", (assessment_data["invoice_id"],))
+        cursor.execute("SELECT id FROM risk_assessments WHERE invoice_id = ? AND is_current = 1 LIMIT 1", (invoice_id,))
         prev_row = cursor.fetchone()
         prev_id = assessment_data.get("previous_assessment_id") or (prev_row["id"] if prev_row else None)
         
-        cursor.execute("UPDATE risk_assessments SET is_current = 0 WHERE invoice_id = ?", (assessment_data["invoice_id"],))
+        cursor.execute("UPDATE risk_assessments SET is_current = 0 WHERE invoice_id = ?", (invoice_id,))
         cursor.execute("""
             INSERT INTO risk_assessments (id, invoice_id, previous_assessment_id, final_score, decision, decision_reason, forced_by_hard_rule, ai_evaluation_id, created_at, is_current)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """, (
-            assessment_id, assessment_data["invoice_id"], prev_id,
-            assessment_data["final_score"], assessment_data["decision"], assessment_data["decision_reason"],
+            assessment_id, invoice_id, prev_id,
+            assessment_data["final_score"], decision_val, assessment_data["decision_reason"],
             assessment_data.get("forced_by_hard_rule"), assessment_data.get("ai_evaluation_id"), now_str
         ))
         
@@ -645,14 +1025,19 @@ class Database:
             ))
             
         cursor.execute("UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?", (
-            assessment_data["decision"], now_str, assessment_data["invoice_id"]
+            decision_val, now_str, invoice_id
         ))
-        
         conn.commit()
         conn.close()
         return self.get_risk_assessment(assessment_id)
 
     def get_latest_assessment(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("risk_assessments").select("*").eq("invoice_id", invoice_id).eq("is_current", True).limit(1).execute()
+            if not res.data:
+                return None
+            return self.get_risk_assessment(res.data[0]["id"])
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM risk_assessments WHERE invoice_id = ? AND is_current = 1 LIMIT 1", (invoice_id,))
@@ -663,6 +1048,24 @@ class Database:
         return self.get_risk_assessment(row["id"])
 
     def get_risk_assessment(self, assessment_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("risk_assessments").select("*").eq("id", assessment_id).execute()
+            if not res.data:
+                return None
+            assessment = res.data[0]
+            sig_res = self.supabase_client.table("risk_signals").select("*").eq("risk_assessment_id", assessment_id).execute()
+            assessment["signals"] = sig_res.data or []
+
+            if assessment.get("ai_evaluation_id"):
+                assessment["ai_evaluation"] = self.get_ai_evaluation(assessment["ai_evaluation_id"])
+            else:
+                assessment["ai_evaluation"] = None
+
+            assessment["duplicates"] = []
+            assessment["split_group"] = None
+            assessment["compliance_checks"] = []
+            return assessment
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM risk_assessments WHERE id = ?", (assessment_id,))
@@ -748,13 +1151,32 @@ class Database:
     # --- AI Evaluations ---
     def record_ai_evaluation(self, eval_data: Dict[str, Any]) -> str:
         eval_id = eval_data.get("id") or str(uuid4())
+        now_str = datetime.now(timezone.utc).isoformat()
+        provider_val = eval_data.get("model_provider") or eval_data.get("provider_used") or eval_data.get("provider") or "GROQ"
+        model_val = eval_data.get("model_version") or eval_data.get("model") or "llama-3.3-70b-versatile"
+
+        if self.supabase_client:
+            row = {
+                "id": eval_id,
+                "invoice_id": eval_data["invoice_id"],
+                "request_context": eval_data.get("request_context", {}),
+                "response_raw": eval_data.get("response_raw"),
+                "response_validated": eval_data.get("response_validated") or eval_data.get("validated_output"),
+                "dropped_hallucinated_factors": eval_data.get("dropped_hallucinated_factors", []),
+                "status": eval_data.get("status", "SUCCESS"),
+                "failure_reason": eval_data.get("failure_reason"),
+                "model_provider": provider_val,
+                "model_version": model_val,
+                "latency_ms": eval_data.get("latency_ms", 0),
+                "token_usage": eval_data.get("token_usage", {}),
+                "correlation_id": eval_data.get("correlation_id") or str(uuid4()),
+                "created_at": eval_data.get("created_at") or now_str
+            }
+            self.supabase_client.table("ai_evaluations").insert(row).execute()
+            return eval_id
+
         conn = self._get_connection()
         cursor = conn.cursor()
-        now_str = datetime.now(timezone.utc).isoformat()
-        
-        provider_val = eval_data.get("provider_used") or eval_data.get("provider") or eval_data.get("model_provider") or "NONE"
-        model_val = eval_data.get("model") or eval_data.get("model_version") or "NONE"
-        
         cursor.execute("""
             INSERT INTO ai_evaluations (
                 id, invoice_id, assessment_id, request_context, response_raw, response_validated,
@@ -794,6 +1216,17 @@ class Database:
         return eval_id
 
     def get_ai_evaluation(self, eval_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("ai_evaluations").select("*").eq("id", eval_id).execute()
+            if not res.data:
+                return None
+            r = res.data[0]
+            val_out = r.get("response_validated") or r.get("validated_output")
+            r["validated_output"] = val_out
+            r["response_validated"] = val_out
+            r["fallback_used"] = False
+            return r
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM ai_evaluations WHERE id = ?", (eval_id,))
@@ -813,6 +1246,17 @@ class Database:
         return res
 
     def get_ai_evaluations_for_invoice(self, invoice_id: str) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("ai_evaluations").select("*").eq("invoice_id", invoice_id).order("created_at", desc=True).execute()
+            out = []
+            for r in (res.data or []):
+                val_out = r.get("response_validated") or r.get("validated_output")
+                r["validated_output"] = val_out
+                r["response_validated"] = val_out
+                r["fallback_used"] = False
+                out.append(r)
+            return out
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM ai_evaluations WHERE invoice_id = ? ORDER BY created_at DESC", (invoice_id,))
@@ -836,7 +1280,24 @@ class Database:
 
     # --- Investigation Methods ---
     def create_investigation(self, invoice_id: str, risk_assessment_id: Optional[str] = None, split_group_id: Optional[str] = None) -> Dict[str, Any]:
-        # Check if already open
+        inv_id = str(uuid4())
+        now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            existing = self.supabase_client.table("investigations").select("id").eq("invoice_id", invoice_id).in_("status", ["OPEN", "IN_REVIEW", "WAITING_FOR_INFORMATION"]).execute()
+            if existing.data:
+                return self.get_investigation(existing.data[0]["id"])
+            row = {
+                "id": inv_id,
+                "invoice_id": invoice_id,
+                "risk_assessment_id": risk_assessment_id,
+                "status": "OPEN",
+                "assigned_role_label": "FINANCE_MANAGER",
+                "created_at": now_str
+            }
+            self.supabase_client.table("investigations").insert(row).execute()
+            return self.get_investigation(inv_id)
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM investigations WHERE invoice_id = ? AND status IN ('OPEN', 'IN_REVIEW', 'WAITING_FOR_INFORMATION')", (invoice_id,))
@@ -845,8 +1306,6 @@ class Database:
             conn.close()
             return self.get_investigation(existing["id"])
             
-        inv_id = str(uuid4())
-        now_str = datetime.now(timezone.utc).isoformat()
         cursor.execute("""
             INSERT INTO investigations (id, invoice_id, risk_assessment_id, split_invoice_group_id, status, assigned_role_label, created_at)
             VALUES (?, ?, ?, ?, 'OPEN', 'FINANCE_MANAGER', ?)
@@ -856,6 +1315,14 @@ class Database:
         return self.get_investigation(inv_id)
 
     def get_investigation(self, investigation_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("investigations").select("*").eq("id", investigation_id).execute()
+            if not res.data:
+                return None
+            inv = res.data[0]
+            inv["comments"] = []
+            return inv
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM investigations WHERE id = ?", (investigation_id,))
@@ -870,6 +1337,12 @@ class Database:
         return res
 
     def get_investigation_by_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        if self.supabase_client:
+            res = self.supabase_client.table("investigations").select("id").eq("invoice_id", invoice_id).order("created_at", desc=True).limit(1).execute()
+            if res.data:
+                return self.get_investigation(res.data[0]["id"])
+            return None
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM investigations WHERE invoice_id = ? ORDER BY created_at DESC LIMIT 1", (invoice_id,))
@@ -895,6 +1368,28 @@ class Database:
 
     def resolve_investigation(self, investigation_id: str, outcome: str, rationale: str, actor_label: str) -> Dict[str, Any]:
         now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            inv = self.get_investigation(investigation_id)
+            if not inv:
+                raise ValueError("Investigation not found")
+            invoice_id = inv["invoice_id"]
+            self.supabase_client.table("investigations").update({
+                "status": "RESOLVED",
+                "outcome": outcome,
+                "outcome_rationale": rationale,
+                "resolved_at": now_str
+            }).eq("id", investigation_id).execute()
+
+            if outcome == "APPROVED_AFTER_REVIEW":
+                self.update_invoice_status(invoice_id, "APPROVED")
+            elif outcome == "BLOCKED":
+                self.update_invoice_status(invoice_id, "BLOCKED")
+            elif outcome == "DUPLICATE_CONFIRMED":
+                self.update_invoice_status(invoice_id, "REJECTED")
+
+            return self.get_investigation(investigation_id)
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT invoice_id FROM investigations WHERE id = ?", (investigation_id,))
@@ -910,7 +1405,6 @@ class Database:
             WHERE id = ?
         """, (outcome, rationale, now_str, investigation_id))
         
-        # Outcome side-effects per PRD Section 11.5
         if outcome == "APPROVED_AFTER_REVIEW":
             app_id = str(uuid4())
             cursor.execute("""
@@ -976,14 +1470,12 @@ class Database:
         total_val = 0.0
         items_to_insert = []
         for inv_id in invoice_ids:
-            cursor.execute("SELECT * FROM invoices WHERE id = ?", (inv_id,))
-            inv_row = cursor.fetchone()
+            inv_row = self.get_invoice(inv_id)
             if not inv_row:
                 continue
             total_val += inv_row["amount"]
             
-            cursor.execute("SELECT * FROM risk_assessments WHERE invoice_id = ? AND is_current = 1 LIMIT 1", (inv_id,))
-            ass_row = cursor.fetchone()
+            ass_row = self.get_latest_assessment(inv_id)
             snap_decision = ass_row["decision"] if ass_row else "APPROVE"
             snap_score = ass_row["final_score"] if ass_row else 0.0
             
@@ -992,8 +1484,8 @@ class Database:
             if snap_decision == "APPROVE":
                 is_ready = True
             elif snap_decision == "ESCALATE":
-                cursor.execute("SELECT COUNT(*) as c FROM approvals WHERE invoice_id = ? AND status = 'APPROVED'", (inv_id,))
-                if cursor.fetchone()["c"] > 0:
+                approvals = self.get_approvals_for_invoice(inv_id)
+                if any(a["status"] == "APPROVED" for a in approvals):
                     is_ready = True
                     
             item_id = str(uuid4())
@@ -1052,10 +1544,68 @@ class Database:
 
     # --- Append-only Hash-chained Audit Events ---
     def record_audit_event(self, event_type: str, actor_label: str, payload: Dict[str, Any], correlation_id: Optional[str] = None, invoice_id: Optional[str] = None, vendor_id: Optional[str] = None, payment_run_id: Optional[str] = None, risk_score: Optional[float] = None, decision: Optional[str] = None) -> Dict[str, Any]:
+        event_id = str(uuid4())
+        corr_id = correlation_id or str(uuid4())
+        now_str = datetime.now(timezone.utc).isoformat()
+
+        if self.supabase_client:
+            # 1. Fetch previous hash from Supabase
+            try:
+                res = self.supabase_client.table("audit_events").select("sequence_number, current_hash").order("sequence_number", desc=True).limit(1).execute()
+                prev_hash = res.data[0]["current_hash"] if res.data else ("0" * 64)
+            except Exception:
+                prev_hash = "0" * 64
+
+            # 2. Canonical JSON computation
+            canonical_dict = {
+                "actor_label": actor_label,
+                "correlation_id": corr_id,
+                "decision": decision,
+                "event_type": event_type,
+                "invoice_id": invoice_id,
+                "occurred_at": now_str,
+                "payload": payload,
+                "risk_score": risk_score
+            }
+            canonical_str = json.dumps(canonical_dict, sort_keys=True)
+            cur_hash = hashlib.sha256((canonical_str + prev_hash).encode()).hexdigest()
+
+            row = {
+                "id": event_id,
+                "event_type": event_type,
+                "occurred_at": now_str,
+                "invoice_id": invoice_id,
+                "vendor_id": vendor_id,
+                "correlation_id": corr_id,
+                "actor_label": actor_label,
+                "decision": decision,
+                "payload": payload,
+                "previous_hash": prev_hash,
+                "current_hash": cur_hash
+            }
+            ins = self.supabase_client.table("audit_events").insert(row).execute()
+            seq = ins.data[0].get("sequence_number", 0) if ins.data else 0
+
+            return {
+                "sequence_number": seq,
+                "id": event_id,
+                "event_type": event_type,
+                "occurred_at": now_str,
+                "invoice_id": invoice_id,
+                "vendor_id": vendor_id,
+                "payment_run_id": payment_run_id,
+                "correlation_id": corr_id,
+                "actor_label": actor_label,
+                "risk_score": risk_score,
+                "decision": decision,
+                "payload": payload,
+                "previous_hash": prev_hash,
+                "current_hash": cur_hash
+            }
+
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # 1. Fetch previous hash
         cursor.execute("SELECT sequence_number, current_hash FROM audit_events ORDER BY sequence_number DESC LIMIT 1")
         last_row = cursor.fetchone()
         if last_row:
@@ -1063,11 +1613,6 @@ class Database:
         else:
             prev_hash = "0" * 64
             
-        event_id = str(uuid4())
-        corr_id = correlation_id or str(uuid4())
-        now_str = datetime.now(timezone.utc).isoformat()
-        
-        # 2. Canonical JSON computation
         canonical_dict = {
             "actor_label": actor_label,
             "correlation_id": corr_id,
@@ -1111,6 +1656,21 @@ class Database:
         }
 
     def get_audit_events(self, invoice_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            q = self.supabase_client.table("audit_events").select("*")
+            if invoice_id:
+                q = q.eq("invoice_id", invoice_id)
+            res = q.order("sequence_number", desc=True).limit(limit).execute()
+            out = []
+            for r in (res.data or []):
+                if isinstance(r.get("payload"), str):
+                    try:
+                        r["payload"] = json.loads(r["payload"])
+                    except Exception:
+                        pass
+                out.append(r)
+            return out
+
         conn = self._get_connection()
         cursor = conn.cursor()
         if invoice_id:
@@ -1127,6 +1687,39 @@ class Database:
         return results
 
     def verify_audit_chain(self) -> Dict[str, Any]:
+        if self.supabase_client:
+            res = self.supabase_client.table("audit_events").select("*").order("sequence_number", desc=False).execute()
+            rows = res.data or []
+            if not rows:
+                return {"valid": True, "rows_checked": 0, "first_broken_sequence": None}
+            prev_hash = "0" * 64
+            for r in rows:
+                seq = r["sequence_number"]
+                if r["previous_hash"] != prev_hash:
+                    return {"valid": False, "rows_checked": seq, "first_broken_sequence": seq}
+                pld = r.get("payload")
+                if isinstance(pld, str):
+                    try:
+                        pld = json.loads(pld)
+                    except Exception:
+                        pass
+                canonical_dict = {
+                    "actor_label": r["actor_label"],
+                    "correlation_id": r["correlation_id"],
+                    "decision": r.get("decision"),
+                    "event_type": r["event_type"],
+                    "invoice_id": r.get("invoice_id"),
+                    "occurred_at": r["occurred_at"],
+                    "payload": pld,
+                    "risk_score": r.get("risk_score")
+                }
+                canonical_str = json.dumps(canonical_dict, sort_keys=True)
+                expected_hash = hashlib.sha256((canonical_str + prev_hash).encode()).hexdigest()
+                if r["current_hash"] != expected_hash:
+                    return {"valid": False, "rows_checked": seq, "first_broken_sequence": seq}
+                prev_hash = r["current_hash"]
+            return {"valid": True, "rows_checked": len(rows), "first_broken_sequence": None}
+
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM audit_events ORDER BY sequence_number ASC")
