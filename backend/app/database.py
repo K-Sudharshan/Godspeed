@@ -452,13 +452,27 @@ class Database:
         return None
 
     def get_all_vendors(self) -> List[Dict[str, Any]]:
+        now_str = datetime.now(timezone.utc).isoformat()
         if self.supabase_client:
             res = self.supabase_client.table("vendors").select("*").order("created_at", desc=True).execute()
             out = []
             for v in res.data:
                 if not v.get("name") and v.get("legal_name"):
                     v["name"] = v["legal_name"]
-                v["current_trust_score"] = self.get_current_trust_score(v["id"])
+                score = self.get_current_trust_score(v["id"])
+                if not score:
+                    score = {
+                        "id": str(uuid4()),
+                        "vendor_id": v["id"],
+                        "score": 50.0,
+                        "band": "UNRATED",
+                        "evidence_level": "NO_EVIDENCE",
+                        "temporary_penalty": False,
+                        "calculation_detail": {"base_score": 50.0, "reason": "Standard onboarding baseline"},
+                        "calculated_at": v.get("created_at") or now_str,
+                        "is_current": True
+                    }
+                v["current_trust_score"] = score
                 out.append(v)
             return out
 
@@ -470,7 +484,20 @@ class Database:
         results = []
         for r in rows:
             d = dict(r)
-            d["current_trust_score"] = self.get_current_trust_score(d["id"])
+            score = self.get_current_trust_score(d["id"])
+            if not score:
+                score = {
+                    "id": str(uuid4()),
+                    "vendor_id": d["id"],
+                    "score": 50.0,
+                    "band": "UNRATED",
+                    "evidence_level": "NO_EVIDENCE",
+                    "temporary_penalty": False,
+                    "calculation_detail": {"base_score": 50.0, "reason": "Standard onboarding baseline"},
+                    "calculated_at": d.get("created_at") or now_str,
+                    "is_current": True
+                }
+            d["current_trust_score"] = score
             results.append(d)
         return results
 
@@ -1314,13 +1341,25 @@ class Database:
         conn.close()
         return self.get_investigation(inv_id)
 
+    def get_investigation_comments(self, investigation_id: str) -> List[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM investigation_comments WHERE investigation_id = ? ORDER BY created_at ASC", (investigation_id,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+
     def get_investigation(self, investigation_id: str) -> Optional[Dict[str, Any]]:
         if self.supabase_client:
             res = self.supabase_client.table("investigations").select("*").eq("id", investigation_id).execute()
             if not res.data:
                 return None
             inv = res.data[0]
-            inv["comments"] = []
+            inv["comments"] = self.get_investigation_comments(investigation_id)
+            inv["invoice"] = self.get_invoice(inv["invoice_id"])
+            inv["risk_assessment"] = self.get_latest_assessment(inv["invoice_id"])
+            ai_evals = self.get_ai_evaluations_for_invoice(inv["invoice_id"])
+            inv["ai_evaluation"] = ai_evals[0] if ai_evals else None
             return inv
 
         conn = self._get_connection()
@@ -1331,10 +1370,41 @@ class Database:
             conn.close()
             return None
         res = dict(row)
-        cursor.execute("SELECT * FROM investigation_comments WHERE investigation_id = ? ORDER BY created_at ASC", (investigation_id,))
-        res["comments"] = [dict(r) for r in cursor.fetchall()]
+        res["comments"] = self.get_investigation_comments(investigation_id)
         conn.close()
+        res["invoice"] = self.get_invoice(res["invoice_id"])
+        res["risk_assessment"] = self.get_latest_assessment(res["invoice_id"])
+        ai_evals = self.get_ai_evaluations_for_invoice(res["invoice_id"])
+        res["ai_evaluation"] = ai_evals[0] if ai_evals else None
         return res
+
+    def get_all_investigations(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        if self.supabase_client:
+            q = self.supabase_client.table("investigations").select("id").order("created_at", desc=True)
+            if status:
+                q = q.eq("status", status)
+            res = q.execute()
+            out = []
+            for r in (res.data or []):
+                full = self.get_investigation(r["id"])
+                if full:
+                    out.append(full)
+            return out
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        if status:
+            cursor.execute("SELECT id FROM investigations WHERE status = ? ORDER BY created_at DESC", (status,))
+        else:
+            cursor.execute("SELECT id FROM investigations ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            full = self.get_investigation(r["id"])
+            if full:
+                out.append(full)
+        return out
 
     def get_investigation_by_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
         if self.supabase_client:
@@ -1364,6 +1434,13 @@ class Database:
         cursor.execute("UPDATE investigations SET status = 'IN_REVIEW' WHERE id = ? AND status = 'OPEN'", (investigation_id,))
         conn.commit()
         conn.close()
+
+        if self.supabase_client:
+            try:
+                self.supabase_client.table("investigations").update({"status": "IN_REVIEW"}).eq("id", investigation_id).eq("status", "OPEN").execute()
+            except Exception:
+                pass
+
         return {"id": cid, "investigation_id": investigation_id, "author_label": author_label, "body": body, "created_at": now_str}
 
     def resolve_investigation(self, investigation_id: str, outcome: str, rationale: str, actor_label: str) -> Dict[str, Any]:
@@ -1655,14 +1732,18 @@ class Database:
             "current_hash": cur_hash
         }
 
-    def get_audit_events(self, invoice_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_audit_events(self, invoice_id: Optional[str] = None, limit: int = 50, include_internal: bool = False) -> List[Dict[str, Any]]:
         if self.supabase_client:
             q = self.supabase_client.table("audit_events").select("*")
             if invoice_id:
                 q = q.eq("invoice_id", invoice_id)
+            if not include_internal:
+                q = q.neq("event_type", "TEST_EVENT")
             res = q.order("sequence_number", desc=True).limit(limit).execute()
             out = []
             for r in (res.data or []):
+                if not include_internal and (r.get("event_type", "").startswith("TEST_")):
+                    continue
                 if isinstance(r.get("payload"), str):
                     try:
                         r["payload"] = json.loads(r["payload"])
@@ -1674,9 +1755,15 @@ class Database:
         conn = self._get_connection()
         cursor = conn.cursor()
         if invoice_id:
-            cursor.execute("SELECT * FROM audit_events WHERE invoice_id = ? ORDER BY sequence_number DESC LIMIT ?", (invoice_id, limit))
+            if include_internal:
+                cursor.execute("SELECT * FROM audit_events WHERE invoice_id = ? ORDER BY sequence_number DESC LIMIT ?", (invoice_id, limit))
+            else:
+                cursor.execute("SELECT * FROM audit_events WHERE invoice_id = ? AND event_type NOT LIKE 'TEST_%' ORDER BY sequence_number DESC LIMIT ?", (invoice_id, limit))
         else:
-            cursor.execute("SELECT * FROM audit_events ORDER BY sequence_number DESC LIMIT ?", (limit,))
+            if include_internal:
+                cursor.execute("SELECT * FROM audit_events ORDER BY sequence_number DESC LIMIT ?", (limit,))
+            else:
+                cursor.execute("SELECT * FROM audit_events WHERE event_type NOT LIKE 'TEST_%' ORDER BY sequence_number DESC LIMIT ?", (limit,))
         rows = cursor.fetchall()
         conn.close()
         results = []

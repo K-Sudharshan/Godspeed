@@ -148,19 +148,19 @@ class ComplianceCheckResponse(BaseModel):
 # --- AI Schema ---
 
 class AIRiskFactor(BaseModel):
-    category: str
-    severity: str
-    explanation: str
+    category: Optional[str] = "GENERAL"
+    severity: Optional[str] = "LOW"
+    explanation: Optional[str] = ""
     source_ids: List[str] = Field(default_factory=list)
-    confidence: float = 1.0
+    confidence: Optional[float] = 1.0
 
 class AIEvaluationOutput(BaseModel):
-    risk_level: str
-    confidence: float
-    recommended_decision: str
+    risk_level: Optional[str] = "MEDIUM"
+    confidence: Optional[float] = 0.85
+    recommended_decision: Optional[str] = "ESCALATE"
     risk_factors: List[AIRiskFactor] = Field(default_factory=list)
-    reasoning_summary: str
-    recommended_next_action: str
+    reasoning_summary: Optional[str] = "Evaluation completed"
+    recommended_next_action: Optional[str] = "Review evidence"
     risk_score: Optional[float] = None
 
 class AIEvaluationResponse(BaseModel):
@@ -204,6 +204,9 @@ class InvestigationCommentResponse(BaseModel):
     body: str
     created_at: datetime
 
+class InvestigationCreate(BaseModel):
+    invoice_id: str
+
 class InvestigationResolveRequest(BaseModel):
     outcome: str
     rationale: str
@@ -220,6 +223,9 @@ class InvestigationResponse(BaseModel):
     created_at: datetime
     resolved_at: Optional[datetime] = None
     comments: List[InvestigationCommentResponse] = []
+    invoice: Optional[Dict[str, Any]] = None
+    risk_assessment: Optional[Dict[str, Any]] = None
+    ai_evaluation: Optional[Dict[str, Any]] = None
 
 class HumanOverrideRequest(BaseModel):
     new_decision: str

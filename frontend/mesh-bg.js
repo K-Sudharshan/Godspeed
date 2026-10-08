@@ -1,6 +1,6 @@
 /**
  * 21st.dev Mesh Drift WebGL1 Background
- * AuditTrail AP — Palette: Nightshift (#10131A) & Laser Lemon (#EFFF4F)
+ * AuditTrail AP — Palette: Pitch Black (#000000) & Laser Lemon (#EFFF4F)
  * Settings: speed=67, zoom=40, intensity=56, warp=32, contrast=63, brightness=50, vignette=15, grain=28
  * Cursor: swirl, strength=73, radius=36
  */
@@ -15,6 +15,8 @@
   canvas.style.zIndex = '-1';
   canvas.style.pointerEvents = 'none';
   canvas.style.opacity = '0.9';
+  canvas.style.backgroundColor = '#000000';
+  document.body.style.backgroundColor = '#000000';
   document.body.prepend(canvas);
 
   const gl = canvas.getContext('webgl', { alpha: false, depth: false, antialias: false, powerPreference: 'low-power' }) ||
@@ -43,10 +45,10 @@
     uniform vec2 u_mouse;
     uniform float u_motion_allowed;
 
-    // Palette: Nightshift dominant, Laser Lemon subtle accents
-    const vec3 c_nightshift = vec3(0.0627, 0.0745, 0.102);  // #10131A
+    // Palette: Pitch Black dominant (#000000), Laser Lemon subtle accents
+    const vec3 c_nightshift = vec3(0.0, 0.0, 0.0);  // Pitch Black #000000
     const vec3 c_laserlemon  = vec3(0.937, 1.0, 0.310);     // #EFFF4F
-    const vec3 c_deepslate   = vec3(0.086, 0.106, 0.145);  // #161B25
+    const vec3 c_deepslate   = vec3(0.0, 0.0, 0.0);  // Pitch Black #000000
 
     // Simplex Noise Hash
     vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -122,12 +124,12 @@
       // Contrast (63) & Brightness (50)
       pattern = clamp((pattern - 0.5) * 1.63 + 0.5, 0.0, 1.0);
 
-      // Color mapping: Dominant Nightshift with controlled Laser Lemon energy bands
+      // Color mapping: Pitch Black (#000000) base with controlled Laser Lemon energy bands
       vec3 col = c_nightshift;
       // Soft ambient depth
       col = mix(col, c_deepslate, smoothstep(0.1, 0.6, pattern));
       // Laser lemon accents (intensity 56, controlled and subtle)
-      float accentMask = smoothstep(0.68, 0.95, pattern) * 0.38;
+      float accentMask = smoothstep(0.70, 0.95, pattern) * 0.32;
       col = mix(col, c_laserlemon, accentMask);
 
       // Vignette (15)
@@ -136,9 +138,10 @@
       vig = clamp(pow(vig, 0.15), 0.0, 1.0);
       col *= vig;
 
-      // Subtle grain (28)
-      float grain = (rand(gl_FragCoord.xy + fract(u_time * 10.0)) - 0.5) * 0.028;
-      col += vec3(grain);
+      // Subtle grain (28) applied only over illuminated accents so background stays pitch black #000000
+      float grain = (rand(gl_FragCoord.xy + fract(u_time * 10.0)) - 0.5) * 0.025;
+      col += vec3(grain) * accentMask;
+      col = max(vec3(0.0), col);
 
       gl_FragColor = vec4(col, 1.0);
     }

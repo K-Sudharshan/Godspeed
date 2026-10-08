@@ -11,7 +11,7 @@ from backend.app.schemas import (
     InvoiceCreate, InvoiceResponse,
     VendorCreate, VendorResponse, VendorBankAccountCreate, VendorBankAccountResponse,
     RiskAssessmentResponse,
-    InvestigationCommentCreate, InvestigationCommentResponse,
+    InvestigationCreate, InvestigationCommentCreate, InvestigationCommentResponse,
     InvestigationResolveRequest, InvestigationResponse,
     HumanOverrideRequest, ApprovalResponse,
     PaymentRunCreate, PaymentRunResponse,
@@ -213,14 +213,22 @@ def add_vendor_bank_account(vendor_id: str, ba_in: VendorBankAccountCreate):
 
 # --- Investigation Endpoints ---
 
+@app.get("/api/investigations", response_model=List[InvestigationResponse])
+def list_investigations(status: Optional[str] = None):
+    """List all investigation cases, optionally filtered by status."""
+    return db.get_all_investigations(status=status)
+
 @app.post("/api/investigations", response_model=InvestigationResponse)
-def open_investigation(invoice_id: str):
-    inv = db.get_invoice(invoice_id)
+def open_investigation(req: Optional[InvestigationCreate] = None, invoice_id: Optional[str] = None):
+    target_invoice_id = (req.invoice_id if req else None) or invoice_id
+    if not target_invoice_id:
+        raise HTTPException(status_code=400, detail="invoice_id is required via query param or JSON body")
+    inv = db.get_invoice(target_invoice_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    ass = db.get_latest_assessment(invoice_id)
-    res = db.create_investigation(invoice_id, risk_assessment_id=ass["id"] if ass else None)
-    return res
+    ass = db.get_latest_assessment(target_invoice_id)
+    res = db.create_investigation(target_invoice_id, risk_assessment_id=ass["id"] if ass else None)
+    return db.get_investigation(res["id"])
 
 @app.get("/api/investigations/{investigation_id}", response_model=InvestigationResponse)
 def get_investigation(investigation_id: str):
@@ -288,8 +296,8 @@ def check_payment_run_readiness(run_id: str):
 # --- Audit Endpoints ---
 
 @app.get("/api/audit/events", response_model=List[AuditEventResponse])
-def get_audit_events(invoice_id: Optional[str] = None, limit: int = 50):
-    return db.get_audit_events(invoice_id=invoice_id, limit=limit)
+def get_audit_events(invoice_id: Optional[str] = None, limit: int = 50, include_internal: bool = False):
+    return db.get_audit_events(invoice_id=invoice_id, limit=limit, include_internal=include_internal)
 
 @app.get("/api/audit/verify")
 def verify_audit_chain():

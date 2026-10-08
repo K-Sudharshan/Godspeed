@@ -13,7 +13,39 @@
 <body>
   <!-- Global 21st.dev Mesh Drift WebGL Background is injected here by mesh-bg.js -->
 
-  <div class="app-container">
+  <!-- Minimal Intro / Hero Screen -->
+  <section id="hero-entry-screen" class="hero-screen" aria-label="Intro Hero">
+    <div class="hero-composition">
+      <div class="hero-shield-mark" aria-hidden="true">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" stroke="#EFFF4F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M9 12l2 2 4-4" stroke="#EFFF4F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <h1 class="hero-title">AUDITTRAIL <span class="hero-title-accent">AP</span></h1>
+
+      <p class="hero-tagline">Stop risky payments before the money moves.</p>
+
+      <div class="hero-action">
+        <button class="btn-antimetal hero-btn" id="btn-enter-dashboard" type="button" aria-label="Enter AuditTrail AP Dashboard">
+          <span class="antimetal-panel">
+            <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="4" cy="4" r="1.3" fill="#000000"/>
+              <circle cx="8" cy="8" r="1.3" fill="#000000"/>
+              <circle cx="4" cy="12" r="1.3" fill="#000000"/>
+              <circle cx="9" cy="4" r="1.3" fill="#000000"/>
+              <circle cx="13" cy="8" r="1.3" fill="#000000"/>
+              <circle cx="9" cy="12" r="1.3" fill="#000000"/>
+            </svg>
+          </span>
+          <span class="antimetal-label">ENTER AUDITTRAIL</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="app-container" id="main-app-container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
@@ -78,33 +110,8 @@
           <h1 id="page-title">Pipeline Integrity Overview</h1>
           <p id="page-subtitle">Real-time payment exposure, active intercepts, and autonomous risk safeguards.</p>
         </div>
-        <div class="topbar-actions">
-          <button class="btn-antimetal" id="btn-verify-audit-header">
-            <span class="antimetal-panel">
-              <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
-                <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
-                <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
-                <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
-                <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
-                <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
-              </svg>
-            </span>
-            <span class="antimetal-label">VERIFY CHAIN</span>
-          </button>
-          <button class="btn-antimetal" id="btn-open-ingest">
-            <span class="antimetal-panel">
-              <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
-                <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
-                <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
-                <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
-                <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
-                <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
-              </svg>
-            </span>
-            <span class="antimetal-label">INGEST INVOICE</span>
-          </button>
+        <div class="topbar-actions" id="topbar-actions-container">
+          <!-- Populated contextually by app.js:switchTab -->
         </div>
       </header>
 
@@ -447,15 +454,66 @@
             <button type="submit" class="btn-antimetal">
               <span class="antimetal-panel">
                 <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
-                  <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
-                  <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
-                  <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
-                  <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
-                  <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
+                  <circle cx="4" cy="4" r="1.3" fill="#000000"/>
+                  <circle cx="8" cy="8" r="1.3" fill="#000000"/>
+                  <circle cx="4" cy="12" r="1.3" fill="#000000"/>
+                  <circle cx="9" cy="4" r="1.3" fill="#000000"/>
+                  <circle cx="13" cy="8" r="1.3" fill="#000000"/>
+                  <circle cx="9" cy="12" r="1.3" fill="#000000"/>
                 </svg>
               </span>
               <span class="antimetal-label">RUN RISK FIREWALL</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: CREATE PAYMENT RUN                                 -->
+  <!-- ========================================================= -->
+  <div class="modal-backdrop" id="modal-payment-run">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-top">
+        <div>
+          <div class="modal-eyebrow">DISBURSEMENT GATEWAY</div>
+          <h2 class="modal-heading font-display">CREATE PAYMENT RUN</h2>
+          <p class="modal-subheading">Batch disbursements subject to pre-payment integrity firewall gates.</p>
+        </div>
+        <button class="modal-close-btn" id="btn-close-payment-run" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-scroll-body">
+        <form id="form-payment-run" class="form-stack">
+          <div class="form-field">
+            <label class="form-label">Payment Run Batch Name *</label>
+            <input type="text" id="run-name" class="form-input" required placeholder="e.g. OCTOBER AP BATCH #105">
+          </div>
+          <div class="form-field">
+            <label class="form-label">Authorizing Role</label>
+            <input type="text" id="run-actor" class="form-input" value="FINANCE_MANAGER" readonly>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Included Invoices</label>
+            <p class="text-secondary" style="font-size: 0.8rem; margin-bottom: 8px;">All currently approved and conforming invoices in the pipeline will be enrolled in this disbursement cycle.</p>
+            <div id="payment-run-invoices-summary" style="padding: 10px 14px; background: rgba(0, 0, 0, 0.7); border: 1px solid var(--nightshift-border); border-radius: var(--radius-md); font-size: 0.82rem;" class="font-mono text-muted">
+              Scanning pipeline...
+            </div>
+          </div>
+          <div class="modal-actions-bar">
+            <button type="button" class="btn-ghost" id="btn-cancel-payment-run">Cancel</button>
+            <button type="submit" class="btn-antimetal">
+              <span class="antimetal-panel">
+                <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="4" cy="4" r="1.3" fill="#000000"/>
+                  <circle cx="8" cy="8" r="1.3" fill="#000000"/>
+                  <circle cx="4" cy="12" r="1.3" fill="#000000"/>
+                  <circle cx="9" cy="4" r="1.3" fill="#000000"/>
+                  <circle cx="13" cy="8" r="1.3" fill="#000000"/>
+                  <circle cx="9" cy="12" r="1.3" fill="#000000"/>
+                </svg>
+              </span>
+              <span class="antimetal-label">INITIATE RUN</span>
             </button>
           </div>
         </form>
