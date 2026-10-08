@@ -1,0 +1,22 @@
+# Secrets & Environments
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# Database files
+*.db-journal
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
