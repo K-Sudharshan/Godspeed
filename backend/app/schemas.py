@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, date
 
 # --- Ingestion & Invoice Schemas ---
@@ -12,10 +12,10 @@ class InvoiceLineItemInput(BaseModel):
     hsn_sac_code: Optional[str] = None
 
 class InvoiceCreate(BaseModel):
-    vendor_name: str
-    invoice_number: str
-    invoice_date: date
-    amount: float
+    vendor_name: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    amount: Optional[float] = None
     currency: Optional[str] = "INR"
     taxable_value: Optional[float] = None
     tax_amount: Optional[float] = None
@@ -24,6 +24,33 @@ class InvoiceCreate(BaseModel):
     po_id: Optional[str] = None
     irn: Optional[str] = None
     line_items: List[InvoiceLineItemInput] = []
+    source_type: Optional[str] = "STRUCTURED"
+    structured_data: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_structured_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            sdata = data.get("structured_data")
+            if isinstance(sdata, dict):
+                merged = dict(data)
+                for k, v in sdata.items():
+                    if k not in merged or merged[k] is None:
+                        merged[k] = v
+                return merged
+        return data
+
+    @model_validator(mode="after")
+    def validate_required_fields(self):
+        if not self.vendor_name:
+            raise ValueError("vendor_name is required")
+        if not self.invoice_number:
+            raise ValueError("invoice_number is required")
+        if self.invoice_date is None:
+            raise ValueError("invoice_date is required")
+        if self.amount is None:
+            raise ValueError("amount is required")
+        return self
 
 class InvoiceLineItemResponse(BaseModel):
     id: str
