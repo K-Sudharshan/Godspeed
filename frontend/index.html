@@ -3,195 +3,360 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AuditTrail AP — Real-Time Payment Integrity Platform</title>
+  <title>AuditTrail AP — Explainable Payment Integrity Platform</title>
+  <meta name="description" content="Pre-payment risk firewall combining deterministic rules, statistical pricing, duplicate/split pattern detection, vendor trust, and grounded AI explainability.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@700;800&family=Newsreader:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <!-- Global 21st.dev Mesh Drift WebGL Background is injected here by mesh-bg.js -->
+
   <div class="app-container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div class="brand-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" stroke="#EFFF4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9 12l2 2 4-4" stroke="#EFFF4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
-        <div class="brand-text">
-          <h2>AuditTrail <span>AP</span></h2>
-          <p>Payment Integrity Firewall</p>
+        <div class="brand-meta">
+          <div class="brand-title">AUDITTRAIL <span class="brand-accent">AP</span></div>
+          <div class="brand-tagline">Payment Integrity</div>
         </div>
       </div>
 
+      <div class="nav-divider"></div>
+
       <nav class="nav-menu">
-        <button class="nav-item active" data-tab="invoices">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Invoices & Risk
+        <button class="nav-item active" data-tab="overview">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-tab="invoices">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>Invoices</span>
         </button>
         <button class="nav-item" data-tab="investigations">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Investigations
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Investigations</span>
           <span class="badge-count" id="nav-inv-count">0</span>
         </button>
         <button class="nav-item" data-tab="payment-runs">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-          Payment Runs
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <span>Payment Runs</span>
+        </button>
+        <button class="nav-item" data-tab="vendors">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Vendors</span>
         </button>
         <button class="nav-item" data-tab="audit">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          Audit Trail (SHA-256)
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span>Audit Trail</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
-        <div class="system-status">
-          <div class="status-indicator live"></div>
-          <div>
-            <div class="status-title">Risk Firewall Live</div>
-            <div class="status-subtitle">Pre-Payment Gate Active</div>
+        <div class="system-status-indicator">
+          <span class="status-pulse"></span>
+          <div class="status-text">
+            <div class="status-head">Firewall Active</div>
+            <div class="status-sub">Pre-Payment Gate Enforced</div>
           </div>
         </div>
       </div>
     </aside>
 
-    <!-- Main Content Area -->
+    <!-- Main View Area -->
     <main class="main-content">
-      <!-- Top Header -->
+      <!-- Top Action Bar -->
       <header class="topbar">
-        <div class="header-titles">
-          <h1 id="page-title">Invoice Risk Firewall</h1>
-          <p id="page-subtitle">Real-time explainable payment integrity checks before funds release</p>
+        <div class="topbar-titles">
+          <h1 id="page-title">Pipeline Integrity Overview</h1>
+          <p id="page-subtitle">Real-time payment exposure, active intercepts, and autonomous risk safeguards.</p>
         </div>
-        <div class="header-actions">
-          <button class="btn btn-outline" id="btn-verify-audit">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            Verify Chain
+        <div class="topbar-actions">
+          <button class="btn-antimetal" id="btn-verify-audit-header">
+            <span class="antimetal-panel">
+              <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
+                <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
+                <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
+                <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
+                <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
+                <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
+              </svg>
+            </span>
+            <span class="antimetal-label">VERIFY CHAIN</span>
           </button>
-          <button class="btn btn-primary" id="btn-open-ingest">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Ingest Invoice
+          <button class="btn-antimetal" id="btn-open-ingest">
+            <span class="antimetal-panel">
+              <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
+                <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
+                <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
+                <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
+                <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
+                <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
+              </svg>
+            </span>
+            <span class="antimetal-label">INGEST INVOICE</span>
           </button>
         </div>
       </header>
 
-      <!-- Stats Bar -->
-      <section class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-label">TOTAL INVOICES</div>
-          <div class="metric-value" id="stat-total-invoices">0</div>
-          <div class="metric-detail">Processed via Firewall</div>
+      <!-- ========================================================= -->
+      <!-- TAB 1: OVERVIEW (Answers: How safe is our pipeline?)       -->
+      <!-- ========================================================= -->
+      <section class="tab-pane active" id="tab-overview">
+        <!-- Primary Metric Row -->
+        <div class="overview-metrics-grid">
+          <div class="hero-kpi-card">
+            <div class="kpi-tag">TOTAL EXPOSURE</div>
+            <div class="kpi-value font-display" id="overview-exposure">₹0.00</div>
+            <div class="kpi-caption">Active volume evaluated by Firewall</div>
+          </div>
+          <div class="hero-kpi-card warning">
+            <div class="kpi-tag">ESCALATED FOR REVIEW</div>
+            <div class="kpi-value font-display text-warning" id="overview-escalated-count">0</div>
+            <div class="kpi-caption">Held in pre-release inspection gate</div>
+          </div>
+          <div class="hero-kpi-card danger">
+            <div class="kpi-tag">HARD BLOCKED PAYMENTS</div>
+            <div class="kpi-value font-display text-danger" id="overview-blocked-count">0</div>
+            <div class="kpi-caption">Duplicates / Critical violations intercepted</div>
+          </div>
+          <div class="hero-kpi-card accent">
+            <div class="kpi-tag">AT-RISK VENDORS</div>
+            <div class="kpi-value font-display text-accent" id="overview-at-risk-vendors">0</div>
+            <div class="kpi-caption">Trust band &lt; 45 or bank penalty active</div>
+          </div>
         </div>
-        <div class="metric-card approved">
-          <div class="metric-label">APPROVED</div>
-          <div class="metric-value text-green" id="stat-approved">0</div>
-          <div class="metric-detail">Score &lt; 40 / Policy Pass</div>
-        </div>
-        <div class="metric-card escalated">
-          <div class="metric-label">ESCALATED</div>
-          <div class="metric-value text-yellow" id="stat-escalated">0</div>
-          <div class="metric-detail">Under Active Review</div>
-        </div>
-        <div class="metric-card blocked">
-          <div class="metric-label">HARD BLOCKED</div>
-          <div class="metric-value text-red" id="stat-blocked">0</div>
-          <div class="metric-detail">Duplicates / Critical Violations</div>
+
+        <div class="overview-panels-grid">
+          <!-- Recent Risk Activity -->
+          <div class="surface-card">
+            <div class="surface-header">
+              <div>
+                <h3 class="surface-title font-display">RECENT FIREWALL INTERCEPTS</h3>
+                <p class="surface-subtitle">Latest invoice determinations processed through deterministic rules and AI explainability.</p>
+              </div>
+              <button class="btn-ghost" onclick="switchTab('invoices')">View All Invoices →</button>
+            </div>
+            <div class="recent-intercepts-list" id="overview-recent-list">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Pre-Payment Gateway Status -->
+          <div class="surface-card">
+            <div class="surface-header">
+              <div>
+                <h3 class="surface-title font-display">PAYMENT INTEGRITY CONTROLS</h3>
+                <p class="surface-subtitle">Operational state of deterministic guards and external AI providers.</p>
+              </div>
+            </div>
+            <div class="control-status-stack">
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">PRIMARY AI EXPLAINABILITY</div>
+                  <div class="control-sub">Groq (openai/gpt-oss-120b) • Dynamic DB context</div>
+                </div>
+                <span class="status-chip success">OPERATIONAL</span>
+              </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">FALLBACK AI LAYER</div>
+                  <div class="control-sub">Google Gemini (gemini-3-flash-preview) • Standby</div>
+                </div>
+                <span class="status-chip success">READY</span>
+              </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">DUPLICATE DETECTOR</div>
+                  <div class="control-sub">Exact hash match + token set similarity</div>
+                </div>
+                <span class="status-chip success">HARD-BLOCK ACTIVE</span>
+              </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">SPLIT-INVOICE CLUSTER GATE</div>
+                  <div class="control-sub">₹5,00,000 policy threshold • 72-hour sliding window</div>
+                </div>
+                <span class="status-chip success">MONITORING</span>
+              </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">INDIA GST VALIDATION</div>
+                  <div class="control-sub">Format &amp; Mod-36 checksum compliance check</div>
+                </div>
+                <span class="status-chip success">ENFORCED</span>
+              </div>
+              <div class="control-row">
+                <div class="control-info">
+                  <div class="control-name font-display">CRYPTOGRAPHIC AUDIT CHAIN</div>
+                  <div class="control-sub">SHA-256 sequential hash block verification</div>
+                </div>
+                <span class="status-chip accent" id="overview-chain-chip">CHAIN VERIFIED</span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- TAB 1: INVOICES QUEUE -->
-      <section class="tab-pane active" id="tab-invoices">
-        <div class="card">
-          <div class="card-header">
-            <h3>Invoice Stream &amp; Payment Decisions</h3>
-            <div class="filters">
-              <button class="filter-pill active" data-filter="ALL">All</button>
-              <button class="filter-pill" data-filter="APPROVE">Approved</button>
-              <button class="filter-pill" data-filter="ESCALATE">Escalated</button>
-              <button class="filter-pill" data-filter="BLOCK">Blocked</button>
+      <!-- ========================================================= -->
+      <!-- TAB 2: INVOICES & RISK QUEUE                              -->
+      <!-- ========================================================= -->
+      <section class="tab-pane" id="tab-invoices">
+        <div class="surface-card">
+          <div class="surface-header flex-wrap">
+            <div>
+              <h3 class="surface-title font-display">INVOICE RISK QUEUE</h3>
+              <p class="surface-subtitle">Real-time payment firewall queue with deterministic scores and evidence summaries.</p>
+            </div>
+            <div class="table-controls">
+              <div class="search-box">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="invoice-search" placeholder="Search invoice, vendor...">
+              </div>
+              <div class="filter-group">
+                <button class="filter-tab active" data-filter="ALL">ALL</button>
+                <button class="filter-tab" data-filter="APPROVE">APPROVED</button>
+                <button class="filter-tab" data-filter="ESCALATE">ESCALATED</button>
+                <button class="filter-tab" data-filter="BLOCK">BLOCKED</button>
+              </div>
             </div>
           </div>
-          <div class="table-responsive">
-            <table class="data-table">
+          <div class="table-container">
+            <table class="clean-table">
               <thead>
                 <tr>
-                  <th>Invoice #</th>
-                  <th>Vendor</th>
-                  <th>Amount</th>
-                  <th>Date</th>
-                  <th>Risk Score</th>
-                  <th>Decision</th>
-                  <th>Actions</th>
+                  <th>INVOICE #</th>
+                  <th>VENDOR</th>
+                  <th>AMOUNT</th>
+                  <th>DATE</th>
+                  <th>RISK SCORE</th>
+                  <th>DECISION</th>
+                  <th>PRIMARY REASON</th>
+                  <th style="text-align: right;">ACTION</th>
                 </tr>
               </thead>
               <tbody id="invoices-table-body">
-                <tr><td colspan="7" class="text-center">Loading invoices...</td></tr>
+                <tr><td colspan="8" class="text-center text-muted">Loading risk firewall stream...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
 
-      <!-- TAB 2: INVESTIGATIONS WORKSPACE -->
+      <!-- ========================================================= -->
+      <!-- TAB 3: INVESTIGATIONS WORKSPACE                           -->
+      <!-- ========================================================= -->
       <section class="tab-pane" id="tab-investigations">
-        <div class="investigations-layout">
-          <div class="card" style="flex: 1;">
-            <div class="card-header">
-              <h3>Active Risk Cases</h3>
+        <div class="investigation-grid">
+          <!-- Cases list -->
+          <div class="surface-card flex-col">
+            <div class="surface-header compact">
+              <h3 class="surface-title font-display">ACTIVE RISK CASES</h3>
             </div>
-            <div class="investigations-list" id="investigations-list">
-              <!-- Populated via JS -->
+            <div class="investigations-queue" id="investigations-list">
+              <!-- Rendered via JS -->
             </div>
           </div>
-          <div class="card" style="flex: 2;" id="investigation-detail-card">
-            <div class="card-header">
-              <h3>Investigation Workspace</h3>
-              <div id="inv-status-pill"></div>
+
+          <!-- Active Investigation Workspace -->
+          <div class="surface-card flex-col" id="investigation-detail-card">
+            <div class="surface-header compact">
+              <h3 class="surface-title font-display">CASE RESOLUTION WORKSPACE</h3>
+              <span id="inv-workspace-status"></span>
             </div>
-            <div id="inv-detail-content" class="investigation-content">
-              <p class="placeholder-text">Select an investigation to view evidence, add comments, or record an outcome.</p>
+            <div id="inv-detail-content" class="workspace-body">
+              <p class="placeholder-text">Select an active investigation case from the queue to inspect evidence and apply resolutions.</p>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- TAB 3: PAYMENT RUNS -->
+      <!-- ========================================================= -->
+      <!-- TAB 4: PAYMENT RUNS                                       -->
+      <!-- ========================================================= -->
       <section class="tab-pane" id="tab-payment-runs">
-        <div class="card">
-          <div class="card-header">
-            <h3>Payment Runs &amp; Release Safeguards</h3>
-            <span class="badge badge-info">Database-Guarded</span>
+        <div class="surface-card">
+          <div class="surface-header">
+            <div>
+              <h3 class="surface-title font-display">PAYMENT BATCH RELEASE GATE</h3>
+              <p class="surface-subtitle">Hard database-enforced trigger protects batches from releasing blocked or unverified invoices.</p>
+            </div>
+            <span class="status-chip accent">DATABASE TRIGGER ENFORCED</span>
           </div>
           <div id="payment-runs-container">
-            <!-- Populated via JS -->
+            <!-- Rendered via JS -->
           </div>
         </div>
       </section>
 
-      <!-- TAB 4: AUDIT TRAIL -->
-      <section class="tab-pane" id="tab-audit">
-        <div class="card">
-          <div class="card-header">
+      <!-- ========================================================= -->
+      <!-- TAB 5: VENDORS INTELLIGENCE                               -->
+      <!-- ========================================================= -->
+      <section class="tab-pane" id="tab-vendors">
+        <div class="surface-card">
+          <div class="surface-header">
             <div>
-              <h3>Cryptographic Audit Chain</h3>
-              <p class="card-subtitle">SHA-256 hash-chained append-only log of every pre-payment decision</p>
+              <h3 class="surface-title font-display">VENDOR TRUST &amp; COMPLIANCE DIRECTORY</h3>
+              <p class="surface-subtitle">Dynamic 0–100 trust scores computed from volume history, bank stability, and compliance track record.</p>
             </div>
-            <div id="chain-status-badge" class="badge badge-success">Chain Verified</div>
           </div>
-          <div class="table-responsive">
-            <table class="data-table font-mono">
+          <div class="table-container">
+            <table class="clean-table">
               <thead>
                 <tr>
-                  <th>Seq #</th>
-                  <th>Event Type</th>
-                  <th>Actor</th>
-                  <th>Decision / Score</th>
-                  <th>Current Hash (SHA-256)</th>
-                  <th>Previous Hash</th>
-                  <th>Timestamp</th>
+                  <th>VENDOR NAME</th>
+                  <th>TRUST SCORE</th>
+                  <th>TRUST BAND</th>
+                  <th>GSTIN</th>
+                  <th>BANK STABILITY</th>
+                  <th>EVALUATED AT</th>
+                  <th style="text-align: right;">STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="vendors-table-body">
+                <tr><td colspan="7" class="text-center text-muted">Loading vendor intelligence...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- TAB 6: AUDIT TRAIL                                        -->
+      <!-- ========================================================= -->
+      <section class="tab-pane" id="tab-audit">
+        <div class="surface-card">
+          <div class="surface-header">
+            <div>
+              <h3 class="surface-title font-display">CRYPTOGRAPHIC AUDIT INTEGRITY</h3>
+              <p class="surface-subtitle">SHA-256 hash-chained append-only record proving tamper-evident decision integrity.</p>
+            </div>
+            <div id="chain-status-badge" class="status-chip success">✓ CHAIN VERIFIED</div>
+          </div>
+          <div class="table-container">
+            <table class="clean-table font-mono">
+              <thead>
+                <tr>
+                  <th>SEQ #</th>
+                  <th>EVENT TYPE</th>
+                  <th>ACTOR</th>
+                  <th>DECISION / SCORE</th>
+                  <th>CURRENT HASH (SHA-256)</th>
+                  <th>PREVIOUS HASH</th>
+                  <th>TIMESTAMP</th>
                 </tr>
               </thead>
               <tbody id="audit-table-body">
-                <tr><td colspan="7" class="text-center">Loading audit log...</td></tr>
+                <tr><td colspan="7" class="text-center text-muted">Loading cryptographic ledger...</td></tr>
               </tbody>
             </table>
           </div>
@@ -200,78 +365,107 @@
     </main>
   </div>
 
-  <!-- MODAL: INVOICE RISK ASSESSMENT DRAWER -->
+  <!-- ========================================================= -->
+  <!-- MODAL: HERO INVOICE RISK ASSESSMENT DRAWER               -->
+  <!-- ========================================================= -->
   <div class="modal-backdrop" id="modal-assessment">
-    <div class="modal-card modal-lg">
-      <div class="modal-header">
-        <div>
-          <h2 id="modal-invoice-num">Invoice Risk Assessment</h2>
-          <p id="modal-invoice-vendor" class="text-muted"></p>
+    <div class="modal-dialog">
+      <div class="modal-top">
+        <div class="modal-meta">
+          <div class="modal-eyebrow font-display">INVOICE RISK ASSESSMENT</div>
+          <h2 id="modal-invoice-num" class="modal-heading font-display">INV-0000</h2>
+          <div id="modal-invoice-vendor" class="modal-subheading">Vendor • Amount</div>
         </div>
-        <button class="btn-close" id="btn-close-modal">&times;</button>
+        <button class="modal-close-btn" id="btn-close-modal" aria-label="Close dialog">&times;</button>
       </div>
-      <div class="modal-body" id="modal-assessment-content">
-        <!-- Injected via JS -->
+
+      <div class="modal-scroll-body" id="modal-assessment-content">
+        <!-- Injected via JS following strict hierarchy:
+             1. DOMINANT RISK RESULT (Score + Decision)
+             2. WHY WAS THIS FLAGGED? (01, 02, 03)
+             3. AI RISK ASSESSMENT (Runtime reasoning + source_ids)
+             4. EVIDENCE & VENDOR INTELLIGENCE
+        -->
       </div>
     </div>
   </div>
 
-  <!-- MODAL: INGEST INVOICE FORM -->
+  <!-- ========================================================= -->
+  <!-- MODAL: INGEST INVOICE FORM                                -->
+  <!-- ========================================================= -->
   <div class="modal-backdrop" id="modal-ingest">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2>Ingest Structured Invoice</h2>
-        <button class="btn-close" id="btn-close-ingest">&times;</button>
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-top">
+        <div>
+          <div class="modal-eyebrow font-display">INTAKE PORTAL</div>
+          <h2 class="modal-heading font-display">INGEST INVOICE</h2>
+        </div>
+        <button class="modal-close-btn" id="btn-close-ingest" aria-label="Close dialog">&times;</button>
       </div>
-      <div class="modal-body">
-        <form id="form-ingest">
-          <div class="form-group">
-            <label>Vendor Name *</label>
-            <input type="text" id="ingest-vendor" class="form-input" required placeholder="e.g. Apex Tech Solutions">
+      <div class="modal-scroll-body">
+        <form id="form-ingest" class="form-stack">
+          <div class="form-field">
+            <label class="form-label">Vendor Name *</label>
+            <input type="text" id="ingest-vendor" class="form-input" required placeholder="e.g. Apex Neural Technologies">
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Invoice Number *</label>
-              <input type="text" id="ingest-num" class="form-input" required placeholder="e.g. INV-9988">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Invoice Number *</label>
+              <input type="text" id="ingest-num" class="form-input" required placeholder="e.g. ANT-2026-901">
             </div>
-            <div class="form-group">
-              <label>Invoice Date *</label>
+            <div class="form-field">
+              <label class="form-label">Invoice Date *</label>
               <input type="date" id="ingest-date" class="form-input" required>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Total Amount (₹) *</label>
-              <input type="number" step="0.01" id="ingest-amount" class="form-input" required placeholder="e.g. 75000">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Total Amount (₹) *</label>
+              <input type="number" step="0.01" id="ingest-amount" class="form-input" required placeholder="145000">
             </div>
-            <div class="form-group">
-              <label>GSTIN (Optional)</label>
-              <input type="text" id="ingest-gstin" class="form-input" placeholder="e.g. 27AAAAA0000A1Z5">
+            <div class="form-field">
+              <label class="form-label">GSTIN (Optional)</label>
+              <input type="text" id="ingest-gstin" class="form-input" placeholder="27AAPCA1234F1Z5">
             </div>
           </div>
-          <div class="form-group">
-            <label>Line Item Description</label>
-            <input type="text" id="ingest-desc" class="form-input" placeholder="e.g. Cloud Hosting & Technical Advisory">
+          <div class="form-field">
+            <label class="form-label">Line Item Description</label>
+            <input type="text" id="ingest-desc" class="form-input" placeholder="e.g. Cloud Inference Processing Infrastructure">
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Quantity</label>
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Quantity</label>
               <input type="number" id="ingest-qty" class="form-input" value="1">
             </div>
-            <div class="form-group">
-              <label>Unit Price (₹)</label>
-              <input type="number" step="0.01" id="ingest-price" class="form-input" placeholder="e.g. 75000">
+            <div class="form-field">
+              <label class="form-label">Unit Price (₹)</label>
+              <input type="number" step="0.01" id="ingest-price" class="form-input" placeholder="145000">
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-cancel-ingest">Cancel</button>
-            <button type="submit" class="btn btn-primary">Process Through Risk Firewall</button>
+          <div class="modal-actions-bar">
+            <button type="button" class="btn-ghost" id="btn-cancel-ingest">Cancel</button>
+            <button type="submit" class="btn-antimetal">
+              <span class="antimetal-panel">
+                <svg class="antimetal-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="4" cy="4" r="1.3" fill="#10131A"/>
+                  <circle cx="8" cy="8" r="1.3" fill="#10131A"/>
+                  <circle cx="4" cy="12" r="1.3" fill="#10131A"/>
+                  <circle cx="9" cy="4" r="1.3" fill="#10131A"/>
+                  <circle cx="13" cy="8" r="1.3" fill="#10131A"/>
+                  <circle cx="9" cy="12" r="1.3" fill="#10131A"/>
+                </svg>
+              </span>
+              <span class="antimetal-label">RUN RISK FIREWALL</span>
+            </button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
+  <!-- Background WebGL Shader Script -->
+  <script src="/static/mesh-bg.js"></script>
+  <!-- Application Controller -->
   <script src="/static/app.js"></script>
 </body>
 </html>
