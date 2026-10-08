@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -98,6 +98,21 @@ def get_invoice(invoice_id: str):
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
     return inv
+
+@app.patch("/api/invoices/{invoice_id}", response_model=InvoiceResponse)
+def update_invoice(invoice_id: str, updates: Dict[str, Any]):
+    inv = db.get_invoice(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    updated = db.update_invoice(invoice_id, updates)
+    return updated
+
+@app.get("/api/invoices/{invoice_id}/ai-evaluations")
+def get_invoice_ai_evaluations(invoice_id: str):
+    inv = db.get_invoice(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return db.get_ai_evaluations_for_invoice(invoice_id)
 
 @app.post("/api/invoices/{invoice_id}/reanalyze")
 def reanalyze_invoice(invoice_id: str):

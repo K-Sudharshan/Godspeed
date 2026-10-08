@@ -143,7 +143,11 @@ def run_risk_firewall(invoice_id: str, actor_label: str = "SYSTEM") -> Dict[str,
         vendor=vendor,
         trust_score=trust_score_data,
         signals=all_signals,
-        valid_source_ids=valid_context_ids
+        valid_source_ids=valid_context_ids,
+        duplicate_matches=dup_results.get("matches", []),
+        split_groups=[split_results["split_group"]] if split_results.get("split_group") else [],
+        pricing_signals=pricing_signals,
+        compliance_checks=gst_results.get("checks", [])
     )
     ai_eval_id = db.record_ai_evaluation(ai_record)
 

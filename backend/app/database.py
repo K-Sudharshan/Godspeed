@@ -114,14 +114,23 @@ class Database:
         CREATE TABLE IF NOT EXISTS ai_evaluations (
             id TEXT PRIMARY KEY,
             invoice_id TEXT NOT NULL,
+            assessment_id TEXT,
             request_context TEXT NOT NULL,
             response_raw TEXT,
             response_validated TEXT,
+            validated_output TEXT,
             dropped_hallucinated_factors TEXT,
             status TEXT NOT NULL,
             failure_reason TEXT,
             model_provider TEXT,
             model_version TEXT,
+            provider TEXT,
+            provider_used TEXT,
+            model TEXT,
+            fallback_used INTEGER DEFAULT 0,
+            fallback_reason TEXT,
+            requested_at TEXT,
+            completed_at TEXT,
             latency_ms INTEGER,
             token_usage TEXT,
             correlation_id TEXT NOT NULL,
@@ -274,6 +283,29 @@ class Database:
             current_hash TEXT NOT NULL
         );
         """)
+        
+        # Ensure migration columns for ai_evaluations exist in existing databases
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(ai_evaluations)")
+        existing_cols = [r[1] for r in cursor.fetchall()]
+        needed_cols = [
+            ("assessment_id", "TEXT"),
+            ("provider", "TEXT"),
+            ("provider_used", "TEXT"),
+            ("model", "TEXT"),
+            ("fallback_used", "INTEGER DEFAULT 0"),
+            ("fallback_reason", "TEXT"),
+            ("requested_at", "TEXT"),
+            ("completed_at", "TEXT"),
+            ("validated_output", "TEXT")
+        ]
+        for col_name, col_def in needed_cols:
+            if col_name not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE ai_evaluations ADD COLUMN {col_name} {col_def}")
+                except Exception:
+                    pass
+
         conn.commit()
         conn.close()
 
@@ -492,6 +524,32 @@ class Database:
         conn.commit()
         conn.close()
 
+    def update_invoice(self, invoice_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        allowed_fields = [
+            "amount", "invoice_number", "vendor_id", "currency", "taxable_value",
+            "tax_amount", "tds_amount", "gstin_on_invoice", "irn", "po_id", "status"
+        ]
+        set_clauses = []
+        params = []
+        for f in allowed_fields:
+            if f in updates:
+                set_clauses.append(f"{f} = ?")
+                params.append(updates[f])
+        if not set_clauses:
+            conn.close()
+            return self.get_invoice(invoice_id)
+        
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now(timezone.utc).isoformat())
+        params.append(invoice_id)
+        
+        cursor.execute(f"UPDATE invoices SET {', '.join(set_clauses)} WHERE id = ?", params)
+        conn.commit()
+        conn.close()
+        return self.get_invoice(invoice_id)
+
     def get_invoice(self, invoice_id: str) -> Optional[Dict[str, Any]]:
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -557,15 +615,23 @@ class Database:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        # Capture prior current assessment before marking superseded
+        cursor.execute("SELECT id FROM risk_assessments WHERE invoice_id = ? AND is_current = 1 LIMIT 1", (assessment_data["invoice_id"],))
+        prev_row = cursor.fetchone()
+        prev_id = assessment_data.get("previous_assessment_id") or (prev_row["id"] if prev_row else None)
+        
         cursor.execute("UPDATE risk_assessments SET is_current = 0 WHERE invoice_id = ?", (assessment_data["invoice_id"],))
         cursor.execute("""
             INSERT INTO risk_assessments (id, invoice_id, previous_assessment_id, final_score, decision, decision_reason, forced_by_hard_rule, ai_evaluation_id, created_at, is_current)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """, (
-            assessment_id, assessment_data["invoice_id"], assessment_data.get("previous_assessment_id"),
+            assessment_id, assessment_data["invoice_id"], prev_id,
             assessment_data["final_score"], assessment_data["decision"], assessment_data["decision_reason"],
             assessment_data.get("forced_by_hard_rule"), assessment_data.get("ai_evaluation_id"), now_str
         ))
+        
+        if assessment_data.get("ai_evaluation_id"):
+            cursor.execute("UPDATE ai_evaluations SET assessment_id = ? WHERE id = ?", (assessment_id, assessment_data["ai_evaluation_id"]))
         
         for sig in signals:
             sig_id = sig.get("id") or str(uuid4())
@@ -636,20 +702,11 @@ class Database:
             cd["detail"] = json.loads(cd["detail"] or "{}")
             res["compliance_checks"].append(cd)
             
+        conn.close()
         if res.get("ai_evaluation_id"):
-            cursor.execute("SELECT * FROM ai_evaluations WHERE id = ?", (res["ai_evaluation_id"],))
-            arow = cursor.fetchone()
-            if arow:
-                ad = dict(arow)
-                ad["validated_output"] = json.loads(ad["response_validated"]) if ad.get("response_validated") else None
-                ad["dropped_hallucinated_factors"] = json.loads(ad["dropped_hallucinated_factors"]) if ad.get("dropped_hallucinated_factors") else None
-                res["ai_evaluation"] = ad
-            else:
-                res["ai_evaluation"] = None
+            res["ai_evaluation"] = self.get_ai_evaluation(res["ai_evaluation_id"])
         else:
             res["ai_evaluation"] = None
-            
-        conn.close()
         return res
 
     # --- Duplicate Matches ---
@@ -693,20 +750,75 @@ class Database:
         eval_id = eval_data.get("id") or str(uuid4())
         conn = self._get_connection()
         cursor = conn.cursor()
+        now_str = datetime.now(timezone.utc).isoformat()
+        
+        provider_val = eval_data.get("provider_used") or eval_data.get("provider") or eval_data.get("model_provider") or "NONE"
+        model_val = eval_data.get("model") or eval_data.get("model_version") or "NONE"
+        
         cursor.execute("""
-            INSERT INTO ai_evaluations (id, invoice_id, request_context, response_raw, response_validated, dropped_hallucinated_factors, status, failure_reason, model_provider, model_version, latency_ms, token_usage, correlation_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_evaluations (
+                id, invoice_id, assessment_id, request_context, response_raw, response_validated,
+                validated_output, dropped_hallucinated_factors, status, failure_reason,
+                model_provider, model_version, provider, provider_used, model,
+                fallback_used, fallback_reason, requested_at, completed_at,
+                latency_ms, token_usage, correlation_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            eval_id, eval_data["invoice_id"], json.dumps(eval_data.get("request_context", {})),
-            json.dumps(eval_data.get("response_raw", {})), json.dumps(eval_data.get("response_validated", {})),
-            json.dumps(eval_data.get("dropped_hallucinated_factors", [])), eval_data["status"],
-            eval_data.get("failure_reason"), eval_data.get("model_provider"), eval_data.get("model_version"),
-            eval_data.get("latency_ms"), json.dumps(eval_data.get("token_usage", {})),
-            eval_data["correlation_id"], datetime.now(timezone.utc).isoformat()
+            eval_id,
+            eval_data["invoice_id"],
+            eval_data.get("assessment_id"),
+            json.dumps(eval_data.get("request_context", {})),
+            json.dumps(eval_data.get("response_raw")) if eval_data.get("response_raw") is not None else None,
+            json.dumps(eval_data.get("response_validated")) if eval_data.get("response_validated") is not None else None,
+            json.dumps(eval_data.get("validated_output") or eval_data.get("response_validated")) if (eval_data.get("validated_output") or eval_data.get("response_validated")) is not None else None,
+            json.dumps(eval_data.get("dropped_hallucinated_factors", [])),
+            eval_data["status"],
+            eval_data.get("failure_reason"),
+            provider_val,
+            model_val,
+            provider_val,
+            provider_val,
+            model_val,
+            1 if eval_data.get("fallback_used") else 0,
+            eval_data.get("fallback_reason"),
+            eval_data.get("requested_at") or now_str,
+            eval_data.get("completed_at") or now_str,
+            eval_data.get("latency_ms"),
+            json.dumps(eval_data.get("token_usage", {})),
+            eval_data.get("correlation_id", str(uuid4())),
+            eval_data.get("created_at") or now_str
         ))
         conn.commit()
         conn.close()
         return eval_id
+
+    def get_ai_evaluation(self, eval_id: str) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM ai_evaluations WHERE id = ?", (eval_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        res = dict(row)
+        res["request_context"] = json.loads(res["request_context"] or "{}")
+        res["response_raw"] = json.loads(res["response_raw"]) if res.get("response_raw") else None
+        val_out = res.get("validated_output") or res.get("response_validated")
+        res["validated_output"] = json.loads(val_out) if val_out else None
+        res["response_validated"] = res["validated_output"]
+        res["dropped_hallucinated_factors"] = json.loads(res["dropped_hallucinated_factors"] or "[]")
+        res["token_usage"] = json.loads(res["token_usage"] or "{}")
+        res["fallback_used"] = bool(res.get("fallback_used", 0))
+        return res
+
+    def get_ai_evaluations_for_invoice(self, invoice_id: str) -> List[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM ai_evaluations WHERE invoice_id = ? ORDER BY created_at DESC", (invoice_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [self.get_ai_evaluation(r["id"]) for r in rows if r]
 
     # --- Compliance Checks ---
     def record_compliance_check(self, invoice_id: str, check_type: str, status: str, verification_type: str, detail: Dict[str, Any]):

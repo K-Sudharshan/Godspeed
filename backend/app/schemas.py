@@ -151,17 +151,17 @@ class AIRiskFactor(BaseModel):
     category: str
     severity: str
     explanation: str
-    source_ids: List[str]
+    source_ids: List[str] = Field(default_factory=list)
     confidence: float = 1.0
 
 class AIEvaluationOutput(BaseModel):
-    risk_score: float
     risk_level: str
     confidence: float
     recommended_decision: str
-    risk_factors: List[AIRiskFactor]
+    risk_factors: List[AIRiskFactor] = Field(default_factory=list)
     reasoning_summary: str
     recommended_next_action: str
+    risk_score: Optional[float] = None
 
 class AIEvaluationResponse(BaseModel):
     id: str
@@ -169,6 +169,9 @@ class AIEvaluationResponse(BaseModel):
     status: str
     model_provider: Optional[str] = None
     model_version: Optional[str] = None
+    provider_used: Optional[str] = None
+    fallback_used: Optional[bool] = False
+    fallback_reason: Optional[str] = None
     latency_ms: Optional[int] = None
     validated_output: Optional[AIEvaluationOutput] = None
     dropped_hallucinated_factors: Optional[List[Dict[str, Any]]] = None
